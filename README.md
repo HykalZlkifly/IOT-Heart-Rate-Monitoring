@@ -42,12 +42,17 @@ To clone and compile this project, you only need the core software configuration
 │   │   ├── main.h
 │   │   ├── max30102_for_stm32_hal.h
 │   │   ├── ssd1306.h
-│   │   └── ssd1306_fonts.h
+│   │   ├── ssd1306_conf.h
+│   │   ├── ssd1306_test.h
+│   │   ├── ssd1306_fonts.h
+│   │   ├── stm32f4xx_hal_conf.h
+│   │   └── stm32f4xx_it.h
 │   └── Src/
 │       ├── main.c              <-- Core execution engine & UI Loop
 │       ├── max30102_for_stm32_hal.c
 │       ├── ssd1306.c
-│       └── ssd1306_fonts.c
+│       ├── ssd1306_fonts.c
+│       └── ssd1306_tests.c
 ├── .cproject                   <-- IDE Project configurations
 ├── .project                    <-- IDE Project configurations
 ├── *.ioc                       <-- STM32CubeMX Graphic Initialization File
