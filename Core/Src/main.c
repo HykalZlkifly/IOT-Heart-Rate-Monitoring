@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <string.h>
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
 #include "max30102_for_stm32_hal.h"
@@ -46,10 +47,19 @@
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
+
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 max30102_t max30102; // Global instance for the MAX30102 sensor
+
+/* WIFHOTSPOT & THINGSPEAK CONFIGURATION CREDENTIALS */
+#define WIFI_SSID       "UTEMSlayer_2.4GHz"
+#define WIFI_PASSWORD   "BERR@DT649"
+#define TS_HOST         "api.thingspeak.com"
+#define TS_PORT         "80"
+#define TS_API_KEY      "S7WE19GNUYCMD2VD"
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -57,8 +67,11 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout);
+void ESP_Init_WiFi(char* ssid, char* password);
+void ESP_Send_To_ThingSpeak(int bpm);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -132,9 +145,10 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
+  MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
-  // 1. Initialize display console
+  // 1. Initialize display hardware
   ssd1306_Init();
   ssd1306_Fill(Black);
   ssd1306_SetCursor(0, 0);
@@ -142,7 +156,23 @@ int main(void)
   ssd1306_UpdateScreen();
   HAL_Delay(500);
 
-  // 2. Hardware sanity diagnostic
+  // 2. Network handshake presentation Layer
+  ssd1306_Fill(Black);
+  ssd1306_SetCursor(0, 0);
+  ssd1306_WriteString("Connecting WiFi...", Font_7x10, White);
+  ssd1306_UpdateScreen();
+
+  // Establish connection with the configured hotspot profile
+  ESP_Init_WiFi(WIFI_SSID, WIFI_PASSWORD);
+
+  HAL_Delay(5000);
+  ssd1306_Fill(Black);
+  ssd1306_SetCursor(0, 0);
+  ssd1306_WriteString("WiFi Ready!", Font_7x10, White);
+  ssd1306_UpdateScreen();
+
+
+  // 3. Hardware sanity diagnostic for I2C Sensor Bus
   if (HAL_I2C_IsDeviceReady(&hi2c1, (0x57 << 1), 5, 1000) == HAL_OK)
   {
       ssd1306_Fill(Black);
@@ -162,7 +192,7 @@ int main(void)
       while(1);
   }
 
-  // 3. Initialize the MAX30102 configuration registers
+  // 4. Initialize the MAX30102 configuration registers
   max30102_init(&max30102, &hi2c1);
   max30102_reset(&max30102);
   HAL_Delay(100);
@@ -183,7 +213,7 @@ int main(void)
 
   max30102_clear_fifo(&max30102);
 
-  // 4. Update UI layout
+  // 5. Update UI layout to ready state
   ssd1306_Fill(Black);
   ssd1306_SetCursor(0, 0);
   ssd1306_WriteString("Place Finger", Font_11x18, White);
@@ -194,7 +224,7 @@ int main(void)
   uint32_t last_led_blink = 0;
   uint32_t last_fifo_read = 0;
 
-  /* NEW CALCULATION TRACKING VARIABLES */
+  /* METRIC CALCULATION & FILTER VARIANCE VARIABLES */
   uint32_t last_ir = 0;
   uint32_t last_beat_time = 0;
   int raw_bpm = 0;
@@ -205,6 +235,9 @@ int main(void)
   // Moving Average Filter Arrays
   int bpm_history[4] = {0, 0, 0, 0};
   int history_index = 0;
+
+  // Cloud transmission asynchronous update tracking timer
+  uint32_t last_thingspeak_upload = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -318,6 +351,19 @@ int main(void)
           HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
       }
 
+      // NON-BLOCKING CLOUD ENGINE: Push data to ThingSpeak every 20 seconds (bypasses the 15s limit safely)
+      if (display_bpm > 0 && (HAL_GetTick() - last_thingspeak_upload > 20000))
+      {
+          last_thingspeak_upload = HAL_GetTick();
+
+          // Temporary tiny HUD notification update to show active cloud sync without blocking
+          ssd1306_SetCursor(4, 54);
+          ssd1306_WriteString("TS SYNC...", Font_7x10, White);
+          ssd1306_UpdateScreen();
+
+          ESP_Send_To_ThingSpeak(display_bpm);
+      }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -334,9 +380,14 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+  /** Configure the main internal regulator output voltage
+  */
   __HAL_RCC_PWR_CLK_ENABLE();
-  MODIFY_REG(PWR->CR, PWR_CR_VOS, PWR_REGULATOR_VOLTAGE_SCALE1);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
 
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -352,6 +403,8 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
@@ -372,8 +425,14 @@ void SystemClock_Config(void)
   */
 static void MX_I2C1_Init(void)
 {
-  __HAL_RCC_I2C1_CLK_ENABLE();
 
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
@@ -387,8 +446,43 @@ static void MX_I2C1_Init(void)
   {
     Error_Handler();
   }
+  /* USER CODE BEGIN I2C1_Init 2 */
 
-  HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE);
+  /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
+
 }
 
 /**
@@ -398,6 +492,14 @@ static void MX_I2C1_Init(void)
   */
 static void MX_USART2_UART_Init(void)
 {
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
@@ -410,6 +512,10 @@ static void MX_USART2_UART_Init(void)
   {
     Error_Handler();
   }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
 }
 
 /**
@@ -420,37 +526,165 @@ static void MX_USART2_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
 
+  /* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /* Enable USART1 Clock for ESP-01 Wi-Fi Module */
+  __HAL_RCC_USART1_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : LD2_Pin */
   GPIO_InitStruct.Pin = LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : PA9 (TX) and PA10 (RX) for ESP-01 Module */
+  GPIO_InitStruct.Pin = GPIO_PIN_9 | GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB8 (SCL) and PB9 (SDA) for I2C1 (OLED & MAX30102) */
   GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
+/* USER CODE BEGIN 4 */
+uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout) {
+    uint8_t reply_buffer[200];
+    memset(reply_buffer, 0, sizeof(reply_buffer));
+
+    // Clear any residual rx noise before sending
+    uint32_t tmpreg = 0x00U;
+    tmpreg = huart1.Instance->SR;
+    tmpreg = huart1.Instance->DR;
+    (void)tmpreg;
+
+    HAL_UART_Transmit(&huart1, (uint8_t*)command, strlen(command), 1000);
+
+    // Check response (Using simple polling for setup phase)
+    uint32_t tickstart = HAL_GetTick();
+    uint16_t idx = 0;
+    while ((HAL_GetTick() - tickstart) < timeout) {
+        uint8_t ch;
+        if (HAL_UART_Receive(&huart1, &ch, 1, 10) == HAL_OK) {
+            if (idx < sizeof(reply_buffer) - 1) {
+                reply_buffer[idx++] = ch;
+            }
+            if (strstr((char*)reply_buffer, expected_reply) != NULL) {
+                // Optional: Mirror response to ST-Link (USART2) for easy debugging
+                HAL_UART_Transmit(&huart2, reply_buffer, idx, 1000);
+                return 1; // Success
+            }
+        }
+    }
+    // Print failure message to terminal for debug tracking
+    char err_msg[50];
+    sprintf(err_msg, "\r\nTimeout waiting for: %s\r\n", expected_reply);
+    HAL_UART_Transmit(&huart2, (uint8_t*)err_msg, strlen(err_msg), 1000);
+    return 0; // Fail
+}
+
+void ESP_Init_WiFi(char* ssid, char* password) {
+    char wifi_cmd[128];
+
+    HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n--- Initializing ESP-01 Wi-Fi ---\r\n", 37, 1000);
+
+    ESP_Send_Command("AT\r\n", "OK", 2000);
+    ESP_Send_Command("AT+CWMODE=1\r\n", "OK", 2000);
+
+    sprintf(wifi_cmd, "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, password);
+
+    // 🌟 CHANGE "WIFI CONNECTED" TO "WIFI GOT IP" 🌟
+    // This stops the STM32 from jumping out of setup until the router assigns an IP!
+    ESP_Send_Command(wifi_cmd, "WIFI GOT IP", 15000);
+}
+
+void ESP_Send_To_ThingSpeak(int bpm) {
+    char post_body[64];
+    char http_request[300];
+    char cip_start[64];
+    char cip_send[32];
+
+    // 1. Format the form-urlencoded payload body
+    snprintf(post_body, sizeof(post_body), "api_key=%s&field1=%d", TS_API_KEY, bpm);
+    int body_len = strlen(post_body);
+
+    // 2. Build standard ThingSpeak HTTP POST data structure
+    snprintf(http_request, sizeof(http_request),
+             "POST /update HTTP/1.1\r\n"
+             "Host: %s\r\n"
+             "Connection: close\r\n"
+             "Content-Type: application/x-www-form-urlencoded\r\n"
+             "Content-Length: %d\r\n\r\n"
+             "%s\r\n",
+             TS_HOST, body_len, post_body);
+    int http_len = strlen(http_request);
+
+    // 3. Command pipeline sequence execution over TCP
+    snprintf(cip_start, sizeof(cip_start), "AT+CIPSTART=\"TCP\",\"%s\",%s\r\n", TS_HOST, TS_PORT);
+    if (ESP_Send_Command(cip_start, "CONNECT", 4000)) {
+        snprintf(cip_send, sizeof(cip_send), "AT+CIPSEND=%d\r\n", http_len);
+        if (ESP_Send_Command(cip_send, ">", 2000)) {
+            HAL_UART_Transmit(&huart1, (uint8_t*)http_request, http_len, 2000);
+            HAL_Delay(500); // Buffer relief window
+        }
+        ESP_Send_Command("AT+CIPCLOSE\r\n", "OK", 2000);
+    }
+}
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
+  /* USER CODE BEGIN Error_Handler_Debug */
   __disable_irq();
   while (1)
   {
   }
+  /* USER CODE END Error_Handler_Debug */
 }
+#ifdef USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  * where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */

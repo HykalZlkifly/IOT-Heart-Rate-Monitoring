@@ -273,7 +273,6 @@
 
 #ifdef HAL_RCC_MODULE_ENABLED
   #include "stm32f4xx_hal_rcc.h"
-  #include "stm32f4xx_hal_rcc_ex.h"
 #endif /* HAL_RCC_MODULE_ENABLED */
 
 #ifdef HAL_GPIO_MODULE_ENABLED
@@ -381,9 +380,7 @@
 #endif /* HAL_LTDC_MODULE_ENABLED */
 
 #ifdef HAL_PWR_MODULE_ENABLED
-  #include "stm32f4xx_hal_rcc.h"     /* Required dependency if not included prior */
-  #include "stm32f4xx_hal_pwr.h"
-  #include "stm32f4xx_hal_pwr_ex.h"  // <--- Add this line here manually!
+ #include "stm32f4xx_hal_pwr.h"
 #endif /* HAL_PWR_MODULE_ENABLED */
 
 #ifdef HAL_RNG_MODULE_ENABLED

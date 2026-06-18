@@ -809,7 +809,7 @@ extern "C" {
 #if defined(STM32F0) || defined(STM32F3) || defined(STM32F1)
 #define  GPIO_SPEED_LOW    GPIO_SPEED_FREQ_LOW
 #define  GPIO_SPEED_MEDIUM GPIO_SPEED_FREQ_MEDIUM
-#define  GPIO_SPEED_HIGH   GPIO_SPEED_FREQ_VERY_HIGH
+#define  GPIO_SPEED_HIGH   GPIO_SPEED_FREQ_HIGH
 #endif /* STM32F0 || STM32F3 || STM32F1 */
 
 #define GPIO_AF6_DFSDM                            GPIO_AF6_DFSDM1
