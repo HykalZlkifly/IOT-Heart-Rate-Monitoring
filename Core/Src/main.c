@@ -617,7 +617,6 @@ void ESP_Send_To_My_API(int bpm)
     // 3. Command the ESP-01 payload size window allocation
     sprintf(length_cmd, "AT+CIPSEND=%d\r\n", strlen(http_payload));
     if (!ESP_Send_Command(length_cmd, ">", 500)) {
-        // If the module didn't prompt for payload, close channel and escape to avoid deadlock
         ESP_Send_Command("AT+CIPCLOSE\r\n", "OK", 300);
         return;
     }
@@ -625,8 +624,13 @@ void ESP_Send_To_My_API(int bpm)
 
     // 4. Transmit data to the ESP-01 module channel (huart1)
     HAL_UART_Transmit(&huart1, (uint8_t*)http_payload, strlen(http_payload), 1000);
-}
-/* USER CODE END 4 */
+
+    // 🌟 WAIT FOR ACKNOWLEDGEMENT: Keeps the UART stream clear
+    ESP_Send_Command("", "SEND OK", 1000);
+
+    // 🌟 CLOSE SOCKET: Prevents the ESP-01 from clogging its connection slots
+    ESP_Send_Command("AT+CIPCLOSE\r\n", "OK", 500);
+}/* USER CODE END 4 */
 
 /**
   * @brief  This function is executed in case of error occurrence.
