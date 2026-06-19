@@ -1,15 +1,6 @@
-# Ignore build outputs (Compiler-generated files)
+node_modules/
 Debug/
 Release/
-*.o
-*.su
-*.d
 *.elf
 *.bin
 *.hex
-*.map
-*.list
-
-# Ignore local IDE user-settings that change per computer
-.settings/
-.launch

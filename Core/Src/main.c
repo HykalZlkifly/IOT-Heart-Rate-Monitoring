@@ -55,8 +55,8 @@ UART_HandleTypeDef huart2;
 max30102_t max30102; // Global instance for the MAX30102 sensor
 
 /* WIFHOTSPOT & THINGSPEAK CONFIGURATION CREDENTIALS */
-#define WIFI_SSID       "UTEMSlayer_2.4GHz"
-#define WIFI_PASSWORD   "BERR@DT649"
+#define WIFI_SSID       "HONOR X9a 5G"
+#define WIFI_PASSWORD   "fatin2003"
 #define TS_HOST         "api.thingspeak.com"
 #define TS_PORT         "80"
 #define TS_API_KEY      "S7WE19GNUYCMD2VD"
@@ -71,7 +71,7 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout);
 void ESP_Init_WiFi(char* ssid, char* password);
-void ESP_Send_To_ThingSpeak(int bpm);
+void ESP_Send_To_My_API(int bpm); // <--- Add our new 1-second MongoDB API streamer here!
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -351,25 +351,24 @@ int main(void)
           HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
       }
 
-      // NON-BLOCKING CLOUD ENGINE: Push data to ThingSpeak every 20 seconds (bypasses the 15s limit safely)
-      if (display_bpm > 0 && (HAL_GetTick() - last_thingspeak_upload > 20000))
+      // HIGH-SPEED CLOUD ENGINE: Streams data to MongoDB every 1 second (1000ms)
+      if (display_bpm > 0 && (HAL_GetTick() - last_thingspeak_upload > 1000))
       {
           last_thingspeak_upload = HAL_GetTick();
 
-          // Temporary tiny HUD notification update to show active cloud sync without blocking
+          // Quick non-blocking HUD indicator for MongoDB transmission activity
           ssd1306_SetCursor(4, 54);
-          ssd1306_WriteString("TS SYNC...", Font_7x10, White);
+          ssd1306_WriteString("DB SYNC...", Font_7x10, White);
           ssd1306_UpdateScreen();
 
-          ESP_Send_To_ThingSpeak(display_bpm);
+          // Send data packet directly to your local Node.js server!
+          ESP_Send_To_My_API(display_bpm);
       }
-
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-  }
-  /* USER CODE END 3 */
-}
+      /* USER CODE END WHILE */
+  } // <--- Closes out the infinite while(1) loop correctly
+  /* USER CODE BEGIN 3 */
+} // <--- 🌟 FIXED: Closes out the main() execution container perfectly here!
+/* USER CODE END 3 */
 
 /**
   * @brief System Clock Configuration
@@ -425,14 +424,6 @@ void SystemClock_Config(void)
   */
 static void MX_I2C1_Init(void)
 {
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
@@ -446,10 +437,6 @@ static void MX_I2C1_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C1_Init 2 */
-
-  /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
@@ -459,14 +446,6 @@ static void MX_I2C1_Init(void)
   */
 static void MX_USART1_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
@@ -479,10 +458,6 @@ static void MX_USART1_UART_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
@@ -492,14 +467,6 @@ static void MX_USART1_UART_Init(void)
   */
 static void MX_USART2_UART_Init(void)
 {
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
@@ -512,10 +479,6 @@ static void MX_USART2_UART_Init(void)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
 }
 
 /**
@@ -526,9 +489,6 @@ static void MX_USART2_UART_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -570,15 +530,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
 uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout) {
-    uint8_t reply_buffer[200];
+    uint8_t reply_buffer[300];
     memset(reply_buffer, 0, sizeof(reply_buffer));
 
     // Clear any residual rx noise before sending
@@ -587,9 +543,12 @@ uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout) 
     tmpreg = huart1.Instance->DR;
     (void)tmpreg;
 
+    // Print out checking statements to your serial layout
+    HAL_UART_Transmit(&huart2, (uint8_t*)"\r\nSending: ", 10, 1000);
+    HAL_UART_Transmit(&huart2, (uint8_t*)command, strlen(command), 1000);
+
     HAL_UART_Transmit(&huart1, (uint8_t*)command, strlen(command), 1000);
 
-    // Check response (Using simple polling for setup phase)
     uint32_t tickstart = HAL_GetTick();
     uint16_t idx = 0;
     while ((HAL_GetTick() - tickstart) < timeout) {
@@ -599,17 +558,19 @@ uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout) 
                 reply_buffer[idx++] = ch;
             }
             if (strstr((char*)reply_buffer, expected_reply) != NULL) {
-                // Optional: Mirror response to ST-Link (USART2) for easy debugging
                 HAL_UART_Transmit(&huart2, reply_buffer, idx, 1000);
-                return 1; // Success
+                return 1;
             }
         }
     }
-    // Print failure message to terminal for debug tracking
+
+    HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n[RAW ESP RESPONSE]: ", 22, 1000);
+    HAL_UART_Transmit(&huart2, reply_buffer, idx, 1000);
+
     char err_msg[50];
     sprintf(err_msg, "\r\nTimeout waiting for: %s\r\n", expected_reply);
     HAL_UART_Transmit(&huart2, (uint8_t*)err_msg, strlen(err_msg), 1000);
-    return 0; // Fail
+    return 0;
 }
 
 void ESP_Init_WiFi(char* ssid, char* password) {
@@ -620,44 +581,50 @@ void ESP_Init_WiFi(char* ssid, char* password) {
     ESP_Send_Command("AT\r\n", "OK", 2000);
     ESP_Send_Command("AT+CWMODE=1\r\n", "OK", 2000);
 
-    sprintf(wifi_cmd, "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, password);
+    ESP_Send_Command("AT+CWQAP\r\n", "OK", 2000);
+    HAL_Delay(500);
 
-    // 🌟 CHANGE "WIFI CONNECTED" TO "WIFI GOT IP" 🌟
-    // This stops the STM32 from jumping out of setup until the router assigns an IP!
-    ESP_Send_Command(wifi_cmd, "WIFI GOT IP", 15000);
+    sprintf(wifi_cmd, "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, password);
+    ESP_Send_Command(wifi_cmd, "WIFI GOT IP", 20000);
 }
 
-void ESP_Send_To_ThingSpeak(int bpm) {
-    char post_body[64];
-    char http_request[300];
-    char cip_start[64];
-    char cip_send[32];
+void ESP_Send_To_My_API(int bpm)
+{
+    char tcp_cmd[64];
+    char http_payload[256];
+    char length_cmd[32];
 
-    // 1. Format the form-urlencoded payload body
-    snprintf(post_body, sizeof(post_body), "api_key=%s&field1=%d", TS_API_KEY, bpm);
-    int body_len = strlen(post_body);
+    // 1. Attempt to open a TCP frame channel
+    sprintf(tcp_cmd, "AT+CIPSTART=\"TCP\",\"10.40.234.239\",3000\r\n");
 
-    // 2. Build standard ThingSpeak HTTP POST data structure
-    snprintf(http_request, sizeof(http_request),
-             "POST /update HTTP/1.1\r\n"
-             "Host: %s\r\n"
-             "Connection: close\r\n"
-             "Content-Type: application/x-www-form-urlencoded\r\n"
-             "Content-Length: %d\r\n\r\n"
-             "%s\r\n",
-             TS_HOST, body_len, post_body);
-    int http_len = strlen(http_request);
-
-    // 3. Command pipeline sequence execution over TCP
-    snprintf(cip_start, sizeof(cip_start), "AT+CIPSTART=\"TCP\",\"%s\",%s\r\n", TS_HOST, TS_PORT);
-    if (ESP_Send_Command(cip_start, "CONNECT", 4000)) {
-        snprintf(cip_send, sizeof(cip_send), "AT+CIPSEND=%d\r\n", http_len);
-        if (ESP_Send_Command(cip_send, ">", 2000)) {
-            HAL_UART_Transmit(&huart1, (uint8_t*)http_request, http_len, 2000);
-            HAL_Delay(500); // Buffer relief window
-        }
-        ESP_Send_Command("AT+CIPCLOSE\r\n", "OK", 2000);
+    // FAIL-FAST GATE: If TCP initialization fails, exit immediately to keep sensor/OLED alive!
+    if (!ESP_Send_Command(tcp_cmd, "OK", 500)) {
+        HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n[CRITICAL]: TCP Connect failed, aborting upload sync!\r\n", 57, 1000);
+        return;
     }
+    HAL_Delay(50);
+
+    // 2. Prepare the HTTP POST structure payload
+    int content_length = 10 + (bpm >= 100 ? 3 : 2);
+    sprintf(http_payload,
+            "POST /api/pulse HTTP/1.1\r\n"
+            "Host: 10.40.234.239:3000\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %d\r\n\r\n"
+            "{\"bpm\":%d}\r\n",
+            content_length, bpm);
+
+    // 3. Command the ESP-01 payload size window allocation
+    sprintf(length_cmd, "AT+CIPSEND=%d\r\n", strlen(http_payload));
+    if (!ESP_Send_Command(length_cmd, ">", 500)) {
+        // If the module didn't prompt for payload, close channel and escape to avoid deadlock
+        ESP_Send_Command("AT+CIPCLOSE\r\n", "OK", 300);
+        return;
+    }
+    HAL_Delay(50);
+
+    // 4. Transmit data to the ESP-01 module channel (huart1)
+    HAL_UART_Transmit(&huart1, (uint8_t*)http_payload, strlen(http_payload), 1000);
 }
 /* USER CODE END 4 */
 
@@ -667,24 +634,13 @@ void ESP_Send_To_ThingSpeak(int bpm) {
   */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
   __disable_irq();
   while (1)
   {
   }
-  /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  * where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
-  /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
