@@ -2,17 +2,7 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * @brief          : Main program body with 90 BPM Alert Threshold
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -31,36 +21,16 @@
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
-
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
-/* USER CODE BEGIN PV */
-max30102_t max30102; // Global instance for the MAX30102 sensor
+max30102_t max30102;
 
-/* WIFHOTSPOT & THINGSPEAK CONFIGURATION CREDENTIALS */
+/* USER CODE BEGIN Private Variables */
 #define WIFI_SSID       "HONOR X9a 5G"
 #define WIFI_PASSWORD   "fatin2003"
-#define TS_HOST         "api.thingspeak.com"
-#define TS_PORT         "80"
-#define TS_API_KEY      "S7WE19GNUYCMD2VD"
-/* USER CODE END PV */
+/* USER CODE END Private Variables */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -71,12 +41,10 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout);
 void ESP_Init_WiFi(char* ssid, char* password);
-void ESP_Send_To_My_API(int bpm); // <--- Add our new 1-second MongoDB API streamer here!
+void ESP_Send_To_My_API(int bpm);
 /* USER CODE END PFP */
 
-/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* MASSIVE 24x22 PIXEL BEATING HEART */
 void Draw_Large_Heart(uint8_t x, uint8_t y) {
     for(int i=4; i<=9; i++) {
         ssd1306_DrawPixel(x+i, y, 1);    ssd1306_DrawPixel(x+i, y+1, 1);
@@ -98,7 +66,6 @@ void Draw_Large_Heart(uint8_t x, uint8_t y) {
     ssd1306_DrawPixel(x+11, y+21, 1); ssd1306_DrawPixel(x+12, y+21, 1);
 }
 
-/* COMPRESSED 16x15 PIXEL RECOIL HEART */
 void Draw_Small_Heart(uint8_t x, uint8_t y) {
     x += 4; y += 4;
     for(int i=2; i<=5; i++) { ssd1306_DrawPixel(x+i, y, 1);   ssd1306_DrawPixel(x+i+7, y, 1); }
@@ -115,40 +82,16 @@ void Draw_Small_Heart(uint8_t x, uint8_t y) {
 }
 /* USER CODE END 0 */
 
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
   SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
 
-  /* USER CODE BEGIN 2 */
-  // 1. Initialize display hardware
   ssd1306_Init();
   ssd1306_Fill(Black);
   ssd1306_SetCursor(0, 0);
@@ -156,23 +99,12 @@ int main(void)
   ssd1306_UpdateScreen();
   HAL_Delay(500);
 
-  // 2. Network handshake presentation Layer
   ssd1306_Fill(Black);
   ssd1306_SetCursor(0, 0);
-  ssd1306_WriteString("Connecting WiFi...", Font_7x10, White);
+  ssd1306_WriteString("UART Stream...", Font_7x10, White);
   ssd1306_UpdateScreen();
+  HAL_Delay(500);
 
-  // Establish connection with the configured hotspot profile
-  ESP_Init_WiFi(WIFI_SSID, WIFI_PASSWORD);
-
-  HAL_Delay(5000);
-  ssd1306_Fill(Black);
-  ssd1306_SetCursor(0, 0);
-  ssd1306_WriteString("WiFi Ready!", Font_7x10, White);
-  ssd1306_UpdateScreen();
-
-
-  // 3. Hardware sanity diagnostic for I2C Sensor Bus
   if (HAL_I2C_IsDeviceReady(&hi2c1, (0x57 << 1), 5, 1000) == HAL_OK)
   {
       ssd1306_Fill(Black);
@@ -192,28 +124,22 @@ int main(void)
       while(1);
   }
 
-  // 4. Initialize the MAX30102 configuration registers
   max30102_init(&max30102, &hi2c1);
   max30102_reset(&max30102);
   HAL_Delay(100);
 
-  // Force clean active SpO2 mode
   uint8_t mode_config = 0x03;
   max30102_write(&max30102, MAX30102_MODE_CONFIG, &mode_config, 1);
   HAL_Delay(10);
 
-  // Set highly responsive current level (0x24 = ~7.2mA)
   uint8_t led_current = 0x24;
   max30102_write(&max30102, MAX30102_LED_IR_PA1, &led_current, 1);
   max30102_write(&max30102, MAX30102_LED_RED_PA2, &led_current, 1);
 
-  // Fast-sampling SpO2 configuration (18-bit ADC, 100 samples per second)
   uint8_t spo2_config = 0x27;
   max30102_write(&max30102, MAX30102_SPO2_CONFIG, &spo2_config, 1);
-
   max30102_clear_fifo(&max30102);
 
-  // 5. Update UI layout to ready state
   ssd1306_Fill(Black);
   ssd1306_SetCursor(0, 0);
   ssd1306_WriteString("Place Finger", Font_11x18, White);
@@ -224,54 +150,50 @@ int main(void)
   uint32_t last_led_blink = 0;
   uint32_t last_fifo_read = 0;
 
-  /* METRIC CALCULATION & FILTER VARIANCE VARIABLES */
   uint32_t last_ir = 0;
   uint32_t last_beat_time = 0;
   int raw_bpm = 0;
   int display_bpm = 0;
   int is_beating = 0;
   uint32_t beat_hold_start = 0;
+  uint32_t buzzer_duration = 60;
 
-  // Moving Average Filter Arrays
   int bpm_history[4] = {0, 0, 0, 0};
   int history_index = 0;
 
-  // Cloud transmission asynchronous update tracking timer
   uint32_t last_thingspeak_upload = 0;
-  /* USER CODE END 2 */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   while (1)
   {
-      // FAST RADAR POLLING: Poll the sensor every 10ms instead of running completely uncontrolled
       if (HAL_GetTick() - last_fifo_read > 10)
       {
           last_fifo_read = HAL_GetTick();
 
-          // ANTI-LAG SAFETY FILTER:
           uint8_t wr_ptr = 0, rd_ptr = 0;
           max30102_read(&max30102, MAX30102_FIFO_WR_PTR, &wr_ptr, 1);
           max30102_read(&max30102, MAX30102_FIFO_RD_PTR, &rd_ptr, 1);
 
           int8_t accumulated = (int8_t)wr_ptr - (int8_t)rd_ptr;
           if (accumulated < 0) accumulated += 32;
-
-          if (accumulated > 16)
-          {
-              max30102_clear_fifo(&max30102); // Wipe old backlogged cache instantly
-          }
+          if (accumulated > 16) max30102_clear_fifo(&max30102);
 
           max30102_read_fifo(&max30102);
           uint32_t current_ir = max30102._ir_samples[0];
 
-          // Turn off heartbeat animation frame after 140ms hold time
-          if (is_beating && (HAL_GetTick() - beat_hold_start > 140)) {
+          // Dynamic screen heart-recoil animation matching your 90 BPM alarm state
+          uint32_t animation_duration = (display_bpm < 90) ? 140 : 450;
+          if (is_beating && (HAL_GetTick() - beat_hold_start > animation_duration)) {
               is_beating = 0;
           }
 
-          // Calculate Heart Beats and BPM via Peak-Dipping logic
-          if (current_ir > 35000) {
+          // 👉 AUTOMATIC PERIPHERAL SHUTOFF
+          if (HAL_GetTick() - beat_hold_start > buzzer_duration) {
+              HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET); // Buzzer (PB4) OFF
+              HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET); // Green LED (PA6) OFF
+              HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET); // Red LED (PA7) OFF
+          }
+
+          if (current_ir > 20000) {
               if ((last_ir > current_ir) && (HAL_GetTick() - last_beat_time > 450)) {
                   uint32_t time_diff = HAL_GetTick() - last_beat_time;
                   raw_bpm = 60000 / time_diff;
@@ -283,110 +205,89 @@ int main(void)
                       bpm_history[history_index] = raw_bpm;
                       history_index = (history_index + 1) % 4;
 
-                      int sum = 0;
-                      int valid_beats = 0;
+                      int sum = 0, valid_beats = 0;
                       for(int i = 0; i < 4; i++) {
-                          if(bpm_history[i] > 0) {
-                              sum += bpm_history[i];
-                              valid_beats++;
-                          }
+                          if(bpm_history[i] > 0) { sum += bpm_history[i]; valid_beats++; }
                       }
-                      if(valid_beats > 0) {
-                          display_bpm = sum / valid_beats;
+                      if(valid_beats > 0) display_bpm = sum / valid_beats;
+
+                      // 👉 ACTION LAYERS UPDATED TO 90 BPM CRITERIA
+                      if (display_bpm < 90) {
+                          buzzer_duration = 60; // Short "Bip"
+                          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET); // Green ON
+                          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET); // Buzzer ON
+                      } else {
+                          buzzer_duration = 450; // Sustained Alert "Bipppppp"
+                          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET); // Red ON
+                          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET); // Buzzer ON
                       }
                   }
                   last_beat_time = HAL_GetTick();
               }
           } else {
-              // Clear context elements when finger gets detached
               display_bpm = 0;
               is_beating = 0;
               for(int i=0; i<4; i++) bpm_history[i] = 0;
+              HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6 | GPIO_PIN_7, GPIO_PIN_RESET);
+              HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
           }
           last_ir = current_ir;
       }
 
-      // HIGH REFRESH SCREEN ENGINE: Process layout updates every 150ms instead of 250ms
       if (HAL_GetTick() - last_display_update > 150)
       {
           last_display_update = HAL_GetTick();
-
           ssd1306_Fill(Black);
-
-          // Render Header Title Banner UI
           ssd1306_SetCursor(4, 2);
           ssd1306_WriteString("PULSE MONITOR", Font_7x10, White);
-          for(uint8_t i = 0; i < 128; i++) {
-              ssd1306_DrawPixel(i, 13, 1);
-          }
+          for(uint8_t i = 0; i < 128; i++) { ssd1306_DrawPixel(i, 13, 1); }
 
           if (display_bpm > 0) {
-              // Render active real-time BPM values
               sprintf(display_buffer, "%d", display_bpm);
               ssd1306_SetCursor(8, 30);
               ssd1306_WriteString(display_buffer, Font_11x18, White);
-
               ssd1306_SetCursor(48, 36);
               ssd1306_WriteString("BPM", Font_7x10, White);
-
-              // Render Animated Heart graphic state machine
-              if (is_beating) {
-                  Draw_Large_Heart(88, 24);
-              } else {
-                  Draw_Small_Heart(88, 24);
-              }
+              if (is_beating) Draw_Large_Heart(88, 24); else Draw_Small_Heart(88, 24);
           } else {
-              // Standard Idle prompt state
               ssd1306_SetCursor(10, 34);
               ssd1306_WriteString("PLACE FINGER...", Font_7x10, White);
           }
-
           ssd1306_UpdateScreen();
       }
 
-      // Board Status heartbeat LED
       if (HAL_GetTick() - last_led_blink > 500)
       {
           last_led_blink = HAL_GetTick();
           HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
       }
 
-      // HIGH-SPEED CLOUD ENGINE: Streams data to MongoDB every 1 second (1000ms)
       if (display_bpm > 0 && (HAL_GetTick() - last_thingspeak_upload > 1000))
       {
           last_thingspeak_upload = HAL_GetTick();
-
-          // Quick non-blocking HUD indicator for MongoDB transmission activity
           ssd1306_SetCursor(4, 54);
           ssd1306_WriteString("DB SYNC...", Font_7x10, White);
           ssd1306_UpdateScreen();
-
-          // Send data packet directly to your local Node.js server!
           ESP_Send_To_My_API(display_bpm);
       }
-      /* USER CODE END WHILE */
-  } // <--- Closes out the infinite while(1) loop correctly
-  /* USER CODE BEGIN 3 */
-} // <--- 🌟 FIXED: Closes out the main() execution container perfectly here!
-/* USER CODE END 3 */
+  }
+}
 
-/**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
+/* USER CODE BEGIN 4 */
+void ESP_Send_To_My_API(int bpm) {
+    char tx_packet[32];
+    int pkt_len = sprintf(tx_packet, "<BPM:%d>\n", bpm);
+    HAL_UART_Transmit(&huart1, (uint8_t*)tx_packet, pkt_len, 500);
+}
+uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout) { return 1; }
+void ESP_Init_WiFi(char* ssid, char* password) { return; }
+/* USER CODE END 4 */
+
+void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  /** Configure the main internal regulator output voltage
-  */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
-
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -397,33 +298,17 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  HAL_RCC_OscConfig(&RCC_OscInitStruct);
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK|RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2);
 }
 
-/**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
+static void MX_I2C1_Init(void) {
   hi2c1.Instance = I2C1;
   hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
@@ -433,19 +318,10 @@ static void MX_I2C1_Init(void)
   hi2c1.Init.OwnAddress2 = 0;
   hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  HAL_I2C_Init(&hi2c1);
 }
 
-/**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
+static void MX_USART1_UART_Init(void) {
   huart1.Instance = USART1;
   huart1.Init.BaudRate = 115200;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
@@ -454,19 +330,10 @@ static void MX_USART1_UART_Init(void)
   huart1.Init.Mode = UART_MODE_TX_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  HAL_UART_Init(&huart1);
 }
 
-/**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
+static void MX_USART2_UART_Init(void) {
   huart2.Instance = USART2;
   huart2.Init.BaudRate = 115200;
   huart2.Init.WordLength = UART_WORDLENGTH_8B;
@@ -475,47 +342,46 @@ static void MX_USART2_UART_Init(void)
   huart2.Init.Mode = UART_MODE_TX_RX;
   huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  HAL_UART_Init(&huart2);
 }
 
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
+static void MX_GPIO_Init(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /* Enable USART1 Clock for ESP-01 Wi-Fi Module */
   __HAL_RCC_USART1_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6 | GPIO_PIN_7, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
   GPIO_InitStruct.Pin = LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA9 (TX) and PA10 (RX) for ESP-01 Module */
+  // 👉 PINS UPDATED: PA6 (Green LED), PA7 (Red LED)
+  GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  // 👉 PIN UPDATED: PB4 (Buzzer)
+  GPIO_InitStruct.Pin = GPIO_PIN_4;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   GPIO_InitStruct.Pin = GPIO_PIN_9 | GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
@@ -523,7 +389,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF7_USART1;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB8 (SCL) and PB9 (SDA) for I2C1 (OLED & MAX30102) */
   GPIO_InitStruct.Pin = GPIO_PIN_8 | GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
@@ -532,119 +397,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
-/* USER CODE BEGIN 4 */
-uint8_t ESP_Send_Command(char* command, char* expected_reply, uint32_t timeout) {
-    uint8_t reply_buffer[300];
-    memset(reply_buffer, 0, sizeof(reply_buffer));
-
-    // Clear any residual rx noise before sending
-    uint32_t tmpreg = 0x00U;
-    tmpreg = huart1.Instance->SR;
-    tmpreg = huart1.Instance->DR;
-    (void)tmpreg;
-
-    // Print out checking statements to your serial layout
-    HAL_UART_Transmit(&huart2, (uint8_t*)"\r\nSending: ", 10, 1000);
-    HAL_UART_Transmit(&huart2, (uint8_t*)command, strlen(command), 1000);
-
-    HAL_UART_Transmit(&huart1, (uint8_t*)command, strlen(command), 1000);
-
-    uint32_t tickstart = HAL_GetTick();
-    uint16_t idx = 0;
-    while ((HAL_GetTick() - tickstart) < timeout) {
-        uint8_t ch;
-        if (HAL_UART_Receive(&huart1, &ch, 1, 10) == HAL_OK) {
-            if (idx < sizeof(reply_buffer) - 1) {
-                reply_buffer[idx++] = ch;
-            }
-            if (strstr((char*)reply_buffer, expected_reply) != NULL) {
-                HAL_UART_Transmit(&huart2, reply_buffer, idx, 1000);
-                return 1;
-            }
-        }
-    }
-
-    HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n[RAW ESP RESPONSE]: ", 22, 1000);
-    HAL_UART_Transmit(&huart2, reply_buffer, idx, 1000);
-
-    char err_msg[50];
-    sprintf(err_msg, "\r\nTimeout waiting for: %s\r\n", expected_reply);
-    HAL_UART_Transmit(&huart2, (uint8_t*)err_msg, strlen(err_msg), 1000);
-    return 0;
-}
-
-void ESP_Init_WiFi(char* ssid, char* password) {
-    char wifi_cmd[128];
-
-    HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n--- Initializing ESP-01 Wi-Fi ---\r\n", 37, 1000);
-
-    ESP_Send_Command("AT\r\n", "OK", 2000);
-    ESP_Send_Command("AT+CWMODE=1\r\n", "OK", 2000);
-
-    ESP_Send_Command("AT+CWQAP\r\n", "OK", 2000);
-    HAL_Delay(500);
-
-    sprintf(wifi_cmd, "AT+CWJAP=\"%s\",\"%s\"\r\n", ssid, password);
-    ESP_Send_Command(wifi_cmd, "WIFI GOT IP", 20000);
-}
-
-void ESP_Send_To_My_API(int bpm)
-{
-    char tcp_cmd[64];
-    char http_payload[256];
-    char length_cmd[32];
-
-    // 1. Attempt to open a TCP frame channel
-    sprintf(tcp_cmd, "AT+CIPSTART=\"TCP\",\"10.40.234.239\",3000\r\n");
-
-    // FAIL-FAST GATE: If TCP initialization fails, exit immediately to keep sensor/OLED alive!
-    if (!ESP_Send_Command(tcp_cmd, "OK", 500)) {
-        HAL_UART_Transmit(&huart2, (uint8_t*)"\r\n[CRITICAL]: TCP Connect failed, aborting upload sync!\r\n", 57, 1000);
-        return;
-    }
-    HAL_Delay(50);
-
-    // 2. Prepare the HTTP POST structure payload
-    int content_length = 10 + (bpm >= 100 ? 3 : 2);
-    sprintf(http_payload,
-            "POST /api/pulse HTTP/1.1\r\n"
-            "Host: 10.40.234.239:3000\r\n"
-            "Content-Type: application/json\r\n"
-            "Content-Length: %d\r\n\r\n"
-            "{\"bpm\":%d}\r\n",
-            content_length, bpm);
-
-    // 3. Command the ESP-01 payload size window allocation
-    sprintf(length_cmd, "AT+CIPSEND=%d\r\n", strlen(http_payload));
-    if (!ESP_Send_Command(length_cmd, ">", 500)) {
-        ESP_Send_Command("AT+CIPCLOSE\r\n", "OK", 300);
-        return;
-    }
-    HAL_Delay(50);
-
-    // 4. Transmit data to the ESP-01 module channel (huart1)
-    HAL_UART_Transmit(&huart1, (uint8_t*)http_payload, strlen(http_payload), 1000);
-
-    // 🌟 WAIT FOR ACKNOWLEDGEMENT: Keeps the UART stream clear
-    ESP_Send_Command("", "SEND OK", 1000);
-
-    // 🌟 CLOSE SOCKET: Prevents the ESP-01 from clogging its connection slots
-    ESP_Send_Command("AT+CIPCLOSE\r\n", "OK", 500);
-}/* USER CODE END 4 */
-
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+void Error_Handler(void) {
   __disable_irq();
-  while (1)
-  {
-  }
+  while (1) {}
 }
-#ifdef USE_FULL_ASSERT
-void assert_failed(uint8_t *file, uint32_t line)
-{
-}
-#endif /* USE_FULL_ASSERT */

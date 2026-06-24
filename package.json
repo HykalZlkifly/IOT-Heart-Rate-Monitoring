@@ -2,6 +2,26 @@
   "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "mongoose": "^9.7.1"
-  }
+    "mongoose": "^9.7.2"
+  },
+  "name": "iot-heart-rate-monitoring",
+  "version": "1.0.0",
+  "description": "A highly responsive, real-time pulse monitoring system built on the **STM32F4 platform** using the **MAX30102 Pulse Oximeter** sensor and an **SSD1306 I2C OLED display**.",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HykalZlkifly/IOT-Heart-Rate-Monitoring.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/HykalZlkifly/IOT-Heart-Rate-Monitoring/issues"
+  },
+  "homepage": "https://github.com/HykalZlkifly/IOT-Heart-Rate-Monitoring#readme"
 }
